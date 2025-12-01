@@ -25,8 +25,15 @@ async def callback(request: Request):
     body = await request.body()
     signature = request.headers.get("X-Line-Signature", "")
 
-    # Parse LINE events
-    events = parser.parse(body.decode("utf-8"), signature)
+    # 如果 signature 为空，可能是 LINE ping server → 必須回 200
+    if not signature:
+        return "OK"   # ← 這行避免 LINE 測試時回 404
+
+    try:
+        events = parser.parse(body.decode("utf-8"), signature)
+    except Exception:
+        # 即使解析失敗，也回 200 避免 LINE 重試或 404
+        return "OK"
 
     for event in events:
         if isinstance(event, MessageEvent) and isinstance(event.message, TextMessage):
@@ -35,12 +42,13 @@ async def callback(request: Request):
 
             # --- Gemini 回覆 ---
             response = model.generate_content(user_msg)
-            bot_reply = response.text if hasattr(response, "text") else "我現在有點忙，等我一下喔～"
+            reply_text = response.text if hasattr(response, "text") else "我現在有點忙～"
 
-            # 回覆 LINE
+            # --- LINE 回覆 ---
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage(text=bot_reply)
+                TextSendMessage(text=reply_text)
             )
 
     return "OK"
+
